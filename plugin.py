@@ -36,8 +36,15 @@ wikilink="https://www.domoticz.com/wiki/Using_Python_plugins" externallink="http
 """
 
 import json
-from urllib.request import urlopen
+import requests
+try:
+    from urllib.parse import urlencode
+except ImportError:
+    from urllib import urlencode
 import Domoticz
+
+
+TIMEOUT_REQUESTS = 3
 
 
 class BasePlugin:
@@ -48,16 +55,33 @@ class BasePlugin:
     def __init__(self):
         return
 
+    def request(self, url_path, variables=None, method='get'):
+        url_vars = ''
+        url = self.unipi_url + url_path
+        Domoticz.Debug("Url request %s" % url)
+        if method == 'get':
+            if variables is None:
+                variables = {}
+            if variables:
+                url_vars = '?' + urlencode(variables)
+            url += url_vars
+            resp = requests.get(url, timeout=TIMEOUT_REQUESTS)
+        elif method == 'post':
+            resp = requests.post(url, json=dict(variables), timeout=TIMEOUT_REQUESTS)
+        if not(resp.status_code == 200 or resp.status_code == 201):
+            Domoticz.Log("Error connecting to url %s, response %d" % (url, resp.status_code))
+            return False
+        return json.loads(resp.text)
+
     def onStart(self):
-        self.unipi_url = Parameters["Address"] + ":" + Parameters["Port"]
+        self.unipi_url = "http://" + Parameters["Address"] + ":" + Parameters["Port"]
         Domoticz.Log("Connect to UniPi EVOK API on URL %s" % self.unipi_url)
         if Parameters["Mode1"] == "Debug":
             Domoticz.Debugging(1)
 
         if not len(Devices):
             ctr = 1
-            response = urlopen("http://" + self.unipi_url + "/rest/all").read().decode('utf-8')
-            data = json.loads(response)
+            data = self.request("/rest/all")
             for device in data:
                 dev_id = device["circuit"]
                 if device["dev"] == 'input':
@@ -71,8 +95,6 @@ class BasePlugin:
                 else:
                     Domoticz.Log("Device type %s (%s) not supported" % (device["dev"], dev_id))
                 ctr += 1
-
-        # DumpConfigToLog()
         Domoticz.Heartbeat(2)
         return True
 
@@ -87,6 +109,11 @@ class BasePlugin:
 
     def onCommand(self, Unit, Command, Level, Hue):
         Domoticz.Log("onCommand called for Unit " + str(Unit) + ": Parameter '" + str(Command) + "', Level: " + str(Level))
+        unipi_dev_id = Devices[Unit].DeviceID
+        value = 0 if Command == 'Off' else 1
+        Domoticz.Log("Command %s for device %s" % (Command, unipi_dev_id))
+        if self.request('/rest/relay/' + unipi_dev_id, {'value': str(value)}):
+            UpdateDevice(Unit, value, Command)
 
     def onNotification(self, Name, Subject, Text, Status, Priority, Sound, ImageFile):
         Domoticz.Log("Notification: " + Name + "," + Subject + "," + Text + "," + Status + "," + str(Priority) + "," + Sound + "," + ImageFile)
@@ -95,23 +122,34 @@ class BasePlugin:
         Domoticz.Log("onDisconnect called")
 
     def onHeartbeat(self):
-        response = urlopen("http://" + self.unipi_url + "/rest/all").read().decode('utf-8')
-        data = json.loads(response)
+        data = self.request("/rest/all")
         for device in data:
-            unipi_dev_id = device['circuit']
+            if device["dev"] not in ["input", "temp", "output"]:
+                continue  # Skip unsupported devices
+            device_id = self.getDeviceID(device['circuit'])
+            if not device_id:
+                if device["dev"] == 'temp':
+                    pass  # TODO: Add temp device
+                else:
+                    continue
             if device["dev"] in ["input", "temp"]:
-                dev_list = [id for (id, dev) in Devices.items() if dev.DeviceID == unipi_dev_id and dev.SubType != 73]
-                if not dev_list:
-                    Domoticz.Log("Device with ID %s not found!" % unipi_dev_id)
-                    return
-                elif len(dev_list) > 1:
-                    Domoticz.Log("Multiple devices with ID %s found, cannot update!" % unipi_dev_id)
-                    return
-                device_id = dev_list[0]
                 value_str = str(device["value"])
                 value_int = int(round(device["value"]))
                 if value_str != Devices[device_id].sValue or value_int != Devices[device_id].nValue:
                     UpdateDevice(device_id, value_int, value_str)
+
+    def getDeviceID(self, unipi_dev_id, input_device=True):
+        if input_device:
+            dev_list = [id for (id, dev) in Devices.items() if dev.DeviceID == unipi_dev_id and dev.SubType != 73]
+        else:
+            dev_list = [id for (id, dev) in Devices.items() if dev.DeviceID == unipi_dev_id and dev.SubType == 73]
+        if not dev_list:
+            Domoticz.Log("Device with ID %s not found!" % unipi_dev_id)
+            return
+        elif len(dev_list) > 1:
+            Domoticz.Log("Multiple devices with ID %s found, cannot update!" % unipi_dev_id)
+            return
+        return dev_list[0]
 
 
 _plugin = BasePlugin()
