@@ -59,18 +59,23 @@ class BasePlugin:
         url_vars = ''
         url = self.unipi_url + url_path
         Domoticz.Debug("Url request %s" % url)
+        resp = None
         if method == 'get':
             if variables is None:
                 variables = {}
             if variables:
                 url_vars = '?' + urlencode(variables)
             url += url_vars
-            resp = requests.get(url, timeout=TIMEOUT_REQUESTS)
+            try:
+                resp = requests.get(url, timeout=TIMEOUT_REQUESTS)
+            except Exception as err:
+                Domoticz.Error("Could not connect to url url %s: %s" % (url, err))
+                return dict()
         elif method == 'post':
             resp = requests.post(url, json=dict(variables), timeout=TIMEOUT_REQUESTS)
         if not(resp.status_code == 200 or resp.status_code == 201):
-            Domoticz.Log("Error connecting to url %s, response %d" % (url, resp.status_code))
-            return False
+            Domoticz.Error("Could not connect to url %s, response %d" % (url, resp.status_code))
+            return dict()
         return json.loads(resp.text)
 
     def onStart(self):
@@ -80,21 +85,22 @@ class BasePlugin:
             Domoticz.Debugging(1)
 
         if not len(Devices):
-            ctr = 1
+            dev_id = 1
             data = self.request("/rest/all")
             for device in data:
-                dev_id = device["circuit"]
+                unipi_dev_id = device["circuit"]
                 if device["dev"] == 'input':
-                    Domoticz.Device(Name="Input " + dev_id, Unit=ctr, Type=244, Subtype=62, Switchtype=0,
-                                    DeviceID=dev_id).Create()
+                    Domoticz.Device(Name="Input " + unipi_dev_id, Unit=dev_id, Type=244, Subtype=62, Switchtype=0,
+                                    DeviceID=unipi_dev_id).Create()
                 elif device["dev"] == 'relay':
-                    Domoticz.Device(Name="Relay " + dev_id, Unit=ctr, TypeName="Switch", DeviceID=dev_id).Create()
+                    Domoticz.Device(Name="Relay " + unipi_dev_id, Unit=dev_id, TypeName="Switch",
+                                    DeviceID=unipi_dev_id).Create()
                 elif device["dev"] == "temp":
-                    Domoticz.Device(Name="Temp " + str(ctr), Unit=ctr, TypeName="Temperature",
-                                    DeviceID=dev_id).Create()
+                    Domoticz.Device(Name="Temp " + str(dev_id), Unit=dev_id, TypeName="Temperature",
+                                    DeviceID=unipi_dev_id).Create()
                 else:
-                    Domoticz.Log("Device type %s (%s) not supported" % (device["dev"], dev_id))
-                ctr += 1
+                    Domoticz.Log("Device type %s (%s) not supported" % (device["dev"], unipi_dev_id))
+                dev_id += 1
         Domoticz.Heartbeat(2)
         return True
 
@@ -124,12 +130,15 @@ class BasePlugin:
     def onHeartbeat(self):
         data = self.request("/rest/all")
         for device in data:
-            if device["dev"] not in ["input", "temp", "output"]:
-                continue  # Skip unsupported devices
+            if device["dev"] not in ["input", "temp"]:
+                continue  # Skip outputs and unsupported devices
             device_id = self.getDeviceID(device['circuit'])
             if not device_id:
                 if device["dev"] == 'temp':
-                    pass  # TODO: Add temp device
+                    device_id = max([id for (id, dev) in Devices.items()]) + 1
+                    Domoticz.Device(Name="Temp " + str(device_id), Unit=device_id, TypeName="Temperature",
+                                    DeviceID=device['circuit']).Create()
+                    continue  # do value update to next round
                 else:
                     continue
             if device["dev"] in ["input", "temp"]:
