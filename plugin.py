@@ -1,16 +1,21 @@
-# UniPi plugin for Domoticz
+# -*- coding: utf-8 -*-
 #
-# This plugin uses the open source EVOK api
-# tested and developed on UniPi Neuron L203
+# UniPi Plugin for Domoticz
 #
-# Author: mccwdev
+# Manage and monitor your UniPi controller from Domoticz. This plugin imports all available inputs, 1Wire sensors
+# and relay outputs.
 #
+# Communication is done via the UniPi EVOK API. Tested and developed on UniPi Neuron L203.
+#
+# © 2019 March - mccwdev <https://github.com/mccwdev/>
+#
+
 """
 <plugin key="UniPi" name="UniPi EVOK" author="mccwdev" version="1.0.0"
 wikilink="https://www.domoticz.com/wiki/Using_Python_plugins" externallink="https://github.com/mccwdev/domoticz-unipi">
     <description>
         <h2>UniPi Plugin</h2><br/>
-        Manage your UniPi with Domoticz using the api from EVOK control software
+        Manage your UniPi with Domoticz using the Api from EVOK control software
         <h3>Features</h3>
         <ul style="list-style-type:square">
             <li>Import inputs, relays and external sensors</li>
@@ -45,12 +50,22 @@ import Domoticz
 
 
 TIMEOUT_REQUESTS = 3
+UNIPI_DEVICES = {  # Tuple with (Name, Type, SubType, SwitchType), Type=0 means not supported
+    'input': ('Input',           244,    62,     0),
+    'temp':  ('Temp',             80,     5,     0),
+    'relay': ('Relay',           244,    73,     2),
+    'ai':    ('Analog Input',    243,     8,     0),
+    'ao':    ('Analog Output',   244,    62,     7),
+    'led':   ('ULED',            244,    73,    18),
+    'wd':    ('Watch Dog',         0,     0,     0),
+    'neuro': ('Evok Devices',      0,     0,     0),
+    'uart':  ('UART Serial Port',  0,     0,     0)
+}
 
 
 class BasePlugin:
     enabled = True
     unipi_url = ''
-    EvokConn = None
 
     def __init__(self):
         return
@@ -89,17 +104,13 @@ class BasePlugin:
             data = self.request("/rest/all")
             for device in data:
                 unipi_dev_id = device["circuit"]
-                if device["dev"] == 'input':
-                    Domoticz.Device(Name="Input " + unipi_dev_id, Unit=dev_id, Type=244, Subtype=62, Switchtype=0,
-                                    DeviceID=unipi_dev_id).Create()
-                elif device["dev"] == 'relay':
-                    Domoticz.Device(Name="Relay " + unipi_dev_id, Unit=dev_id, TypeName="Switch",
-                                    DeviceID=unipi_dev_id).Create()
-                elif device["dev"] == "temp":
-                    Domoticz.Device(Name="Temp " + str(dev_id), Unit=dev_id, TypeName="Temperature",
-                                    DeviceID=unipi_dev_id).Create()
-                else:
+                dev_tpl = UNIPI_DEVICES[device["dev"]]
+                if dev_tpl[1] == 0:
                     Domoticz.Log("Device type %s (%s) not supported" % (device["dev"], unipi_dev_id))
+                else:
+                    dev_name = dev_tpl[0] + ' ' + unipi_dev_id
+                    Domoticz.Device(Name=dev_name, Unit=dev_id, Type=dev_tpl[1], Subtype=dev_tpl[2],
+                                    Switchtype=dev_tpl[3], DeviceID=unipi_dev_id).Create()
                 dev_id += 1
         Domoticz.Heartbeat(2)
         return True
@@ -138,14 +149,17 @@ class BasePlugin:
                     device_id = max([id for (id, dev) in Devices.items()]) + 1
                     Domoticz.Device(Name="Temp " + str(device_id), Unit=device_id, TypeName="Temperature",
                                     DeviceID=device['circuit']).Create()
-                    continue  # do value update to next round
                 else:
                     continue
             if device["dev"] in ["input", "temp"]:
+                if device["value"] is None or device["value"] == 'null':
+                    Domoticz.Log("No value from device %s (%s)" % (device['circuit'], device_id))
+                    continue
                 value_str = str(device["value"])
                 value_int = int(round(device["value"]))
                 if value_str != Devices[device_id].sValue or value_int != Devices[device_id].nValue:
                     UpdateDevice(device_id, value_int, value_str)
+        # TODO: Update names from Domo to UniPi
 
     def getDeviceID(self, unipi_dev_id, input_device=True):
         if input_device:
