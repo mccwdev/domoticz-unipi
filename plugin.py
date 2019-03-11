@@ -143,7 +143,7 @@ class BasePlugin:
         for device in data:
             if device["dev"] not in ["input", "temp"]:
                 continue  # Skip outputs and unsupported devices
-            device_id = self.getDeviceID(device['circuit'])
+            device_id = self.getDeviceID(device['circuit'], device['dev'])
             if not device_id:
                 if device["dev"] == 'temp':
                     device_id = max([id for (id, dev) in Devices.items()]) + 1
@@ -161,11 +161,14 @@ class BasePlugin:
                     UpdateDevice(device_id, value_int, value_str)
         # TODO: Update names from Domo to UniPi
 
-    def getDeviceID(self, unipi_dev_id, input_device=True):
-        if input_device:
-            dev_list = [id for (id, dev) in Devices.items() if dev.DeviceID == unipi_dev_id and dev.SubType != 73]
-        else:
-            dev_list = [id for (id, dev) in Devices.items() if dev.DeviceID == unipi_dev_id and dev.SubType == 73]
+    def getDeviceID(self, unipi_dev_id, dev_type):
+        dev_tpl = UNIPI_DEVICES[dev_type]
+        dev_list = [id for (id, dev) in Devices.items() if dev.DeviceID == unipi_dev_id and dev.Type == dev_tpl[1] and
+                    dev.SubType == dev_tpl[2] and dev.SwitchType == dev_tpl[3]]
+        # if input_device:
+        #     dev_list = [id for (id, dev) in Devices.items() if dev.DeviceID == unipi_dev_id and dev.SubType != 73]
+        # else:
+        #     dev_list = [id for (id, dev) in Devices.items() if dev.DeviceID == unipi_dev_id and dev.SubType == 73]
         if not dev_list:
             Domoticz.Log("Device with ID %s not found!" % unipi_dev_id)
             return
