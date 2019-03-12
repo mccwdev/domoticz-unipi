@@ -51,9 +51,9 @@ import Domoticz
 
 TIMEOUT_REQUESTS = 3
 UNIPI_DEVICES = {  # Tuple with (Name, Type, SubType, SwitchType), Type=0 means not supported
-    'input': ('Input',           244,    62,     0),
+    'input': ('Input',           244,    73,     2),
     'temp':  ('Temp',             80,     5,     0),
-    'relay': ('Relay',           244,    73,     2),
+    'relay': ('Relay',           244,    62,     0),
     'ai':    ('Analog Input',    243,     8,     0),
     'ao':    ('Analog Output',   244,    62,     7),
     'led':   ('ULED',            244,    73,    18),
@@ -87,7 +87,7 @@ class BasePlugin:
                 Domoticz.Error("Could not connect to url url %s: %s" % (url, err))
                 return dict()
         elif method == 'post':
-            resp = requests.post(url, json=dict(variables), timeout=TIMEOUT_REQUESTS)
+            resp = requests.post(url, data=variables, timeout=TIMEOUT_REQUESTS)
         if not(resp.status_code == 200 or resp.status_code == 201):
             Domoticz.Error("Could not connect to url %s, response %d" % (url, resp.status_code))
             return dict()
@@ -128,9 +128,13 @@ class BasePlugin:
         Domoticz.Log("onCommand called for Unit " + str(Unit) + ": Parameter '" + str(Command) + "', Level: " + str(Level))
         unipi_dev_id = Devices[Unit].DeviceID
         value = 0 if Command == 'Off' else 1
-        Domoticz.Log("Command %s for device %s" % (Command, unipi_dev_id))
-        if self.request('/rest/relay/' + unipi_dev_id, {'value': str(value)}):
-            UpdateDevice(Unit, value, Command)
+        Domoticz.Log("Command '%s' for device %s" % (Command, unipi_dev_id))
+        res = self.request('/rest/relay/' + unipi_dev_id, {"value": value}, method='post')
+        if 'success' in res and res['success']:
+            # Domoticz.Log("Command send, response: %s" % res)
+            UpdateDevice(Unit, value, str(value))
+        else:
+            Domoticz.Error("Could not update Relay, response:" % res)
 
     def onNotification(self, Name, Subject, Text, Status, Priority, Sound, ImageFile):
         Domoticz.Log("Notification: " + Name + "," + Subject + "," + Text + "," + Status + "," + str(Priority) + "," + Sound + "," + ImageFile)
@@ -141,7 +145,7 @@ class BasePlugin:
     def onHeartbeat(self):
         data = self.request("/rest/all")
         for device in data:
-            if device["dev"] not in ["input", "temp"]:
+            if device["dev"] not in ["input", "temp", "ai"]:
                 continue  # Skip outputs and unsupported devices
             device_id = self.getDeviceID(device['circuit'], device['dev'])
             if not device_id:
@@ -151,24 +155,22 @@ class BasePlugin:
                                     DeviceID=device['circuit']).Create()
                 else:
                     continue
-            if device["dev"] in ["input", "temp"]:
-                if device["value"] is None or device["value"] == 'null':
-                    Domoticz.Log("No value from device %s (%s)" % (device['circuit'], device_id))
-                    continue
-                value_str = str(device["value"])
-                value_int = int(round(device["value"]))
-                if value_str != Devices[device_id].sValue or value_int != Devices[device_id].nValue:
-                    UpdateDevice(device_id, value_int, value_str)
+            # if device["dev"] in ["input", "temp"]:
+            if device["value"] is None or device["value"] == 'null':
+                Domoticz.Log("No value from device %s (%s)" % (device['circuit'], device_id))
+                continue
+            value_str = str(device["value"])
+            value_int = int(round(device["value"]))
+            if (device['dev'] == 'ai' and round(float(value_str), 2) != round(float(Devices[device_id].sValue), 2)) or \
+                (device['dev'] != 'ai' and 
+                    value_str != Devices[device_id].sValue or value_int != Devices[device_id].nValue):
+                UpdateDevice(device_id, value_int, value_str)
         # TODO: Update names from Domo to UniPi
 
     def getDeviceID(self, unipi_dev_id, dev_type):
         dev_tpl = UNIPI_DEVICES[dev_type]
         dev_list = [id for (id, dev) in Devices.items() if dev.DeviceID == unipi_dev_id and dev.Type == dev_tpl[1] and
                     dev.SubType == dev_tpl[2] and dev.SwitchType == dev_tpl[3]]
-        # if input_device:
-        #     dev_list = [id for (id, dev) in Devices.items() if dev.DeviceID == unipi_dev_id and dev.SubType != 73]
-        # else:
-        #     dev_list = [id for (id, dev) in Devices.items() if dev.DeviceID == unipi_dev_id and dev.SubType == 73]
         if not dev_list:
             Domoticz.Log("Device with ID %s not found!" % unipi_dev_id)
             return
@@ -242,5 +244,5 @@ def UpdateDevice(Unit, nValue, sValue=''):
     if Unit in Devices:
         if (Devices[Unit].nValue != nValue) or (Devices[Unit].sValue != sValue):
             Devices[Unit].Update(nValue=nValue, sValue=str(sValue))
-            Domoticz.Log("Update %s, value %s" % (Devices[Unit].Name, sValue))
+            Domoticz.Log("Update %s, nValue %s / sValue %s" % (Devices[Unit].Name, nValue, sValue))
     return
