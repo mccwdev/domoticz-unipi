@@ -149,20 +149,35 @@ class BasePlugin:
                 continue  # Skip outputs and unsupported devices
             device_id = self.getDeviceID(device['circuit'], device['dev'])
             if not device_id:
-                if device["dev"] == 'temp':
-                    device_id = max([id for (id, dev) in Devices.items()]) + 1
-                    Domoticz.Device(Name="Temp " + str(device_id), Unit=device_id, TypeName="Temperature",
-                                    DeviceID=device['circuit']).Create()
+                # Create new temp devices if found, or recreate deleted / newly found or supported devices
+                # if device["dev"] == 'temp':
+                dev_list = [id for (id, dev) in Devices.items()]
+                if dev_list:
+                    device_id = max(dev_list) + 1
                 else:
-                    continue
-            # if device["dev"] in ["input", "temp"]:
+                    device_id = 1
+                    # Domoticz.Device(Name="Temp " + str(device_id), Unit=device_id, TypeName="Temperature",
+                    #                 DeviceID=device['circuit']).Create()
+                unipi_dev_id = device["circuit"]
+                dev_tpl = UNIPI_DEVICES[device["dev"]]
+                if dev_tpl[1] == 0:
+                    Domoticz.Log("Device type %s (%s) not supported" % (device["dev"], unipi_dev_id))
+                else:
+                    dev_name = dev_tpl[0] + ' ' + unipi_dev_id
+                    Domoticz.Device(Name=dev_name, Unit=device_id, Type=dev_tpl[1], Subtype=dev_tpl[2],
+                                    Switchtype=dev_tpl[3], DeviceID=unipi_dev_id).Create()
+                # dev_id += 1
+
             if device["value"] is None or device["value"] == 'null':
                 Domoticz.Log("No value from device %s (%s)" % (device['circuit'], device_id))
                 continue
             value_str = str(device["value"])
             value_int = int(round(device["value"]))
-            if (device['dev'] == 'ai' and round(float(value_str), 2) != round(float(Devices[device_id].sValue), 2)) or \
-                (device['dev'] != 'ai' and 
+            dev_value_str = Devices[device_id].sValue
+            if not dev_value_str:
+                dev_value_str = "0"
+            if (device['dev'] == 'ai' and round(float(value_str), 2) != round(float(dev_value_str), 2)) or \
+                (device['dev'] != 'ai' and
                     value_str != Devices[device_id].sValue or value_int != Devices[device_id].nValue):
                 UpdateDevice(device_id, value_int, value_str)
         # TODO: Update names from Domo to UniPi
