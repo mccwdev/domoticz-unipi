@@ -104,6 +104,9 @@ class BasePlugin:
             data = self.request("/rest/all")
             for device in data:
                 unipi_dev_id = device["circuit"]
+                if device["dev"] not in UNIPI_DEVICES:
+                    Domoticz.Log("Unipi device %s not found in devices definitions" % device["dev"])
+                    continue
                 dev_tpl = UNIPI_DEVICES[device["dev"]]
                 if dev_tpl[1] == 0:
                     Domoticz.Log("Device type %s (%s) not supported" % (device["dev"], unipi_dev_id))
