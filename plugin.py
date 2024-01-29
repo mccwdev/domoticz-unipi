@@ -7,11 +7,11 @@
 #
 # Communication is done via the UniPi EVOK API. Tested and developed on UniPi Neuron L203.
 #
-# © 2019 March - mccwdev <https://github.com/mccwdev/>
+# © 2019 - 2024 January - mccwdev <https://github.com/mccwdev/>
 #
 
 """
-<plugin key="UniPi" name="UniPi EVOK" author="mccwdev" version="1.0.0"
+<plugin key="UniPi" name="UniPi EVOK" author="mccwdev" version="1.0.1"
 wikilink="https://www.domoticz.com/wiki/Using_Python_plugins" externallink="https://github.com/mccwdev/domoticz-unipi">
     <description>
         <h2>UniPi Plugin</h2><br/>
@@ -159,8 +159,6 @@ class BasePlugin:
                     device_id = max(dev_list) + 1
                 else:
                     device_id = 1
-                    # Domoticz.Device(Name="Temp " + str(device_id), Unit=device_id, TypeName="Temperature",
-                    #                 DeviceID=device['circuit']).Create()
                 unipi_dev_id = device["circuit"]
                 dev_tpl = UNIPI_DEVICES[device["dev"]]
                 if dev_tpl[1] == 0:
@@ -169,7 +167,6 @@ class BasePlugin:
                     dev_name = dev_tpl[0] + ' ' + unipi_dev_id
                     Domoticz.Device(Name=dev_name, Unit=device_id, Type=dev_tpl[1], Subtype=dev_tpl[2],
                                     Switchtype=dev_tpl[3], DeviceID=unipi_dev_id).Create()
-                # dev_id += 1
 
             if device["value"] is None or device["value"] == 'null':
                 Domoticz.Log("No value from device %s (%s)" % (device['circuit'], device_id))
